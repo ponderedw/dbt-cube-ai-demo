@@ -34,10 +34,13 @@ data "coder_parameter" "aws_access_key_id" {
   display_name = "AWS Access Key ID"
   description  = "AWS credentials for Bedrock LLM + embeddings"
   type         = "string"
-  sensitive    = true
   mutable      = true
   default      = ""
   order        = 1
+  form_type    = "input"
+  styling = jsonencode({
+    mask_input = true
+  })
 }
 
 data "coder_parameter" "aws_secret_access_key" {
@@ -45,10 +48,13 @@ data "coder_parameter" "aws_secret_access_key" {
   display_name = "AWS Secret Access Key"
   description  = "AWS credentials for Bedrock LLM + embeddings"
   type         = "string"
-  sensitive    = true
   mutable      = true
   default      = ""
   order        = 2
+  form_type    = "input"
+  styling = jsonencode({
+    mask_input = true
+  })
 }
 
 data "coder_parameter" "aws_region" {
