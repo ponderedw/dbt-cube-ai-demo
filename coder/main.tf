@@ -156,18 +156,16 @@ resource "coder_agent" "main" {
 
     # Write .env from parameters
     cat > /home/coder/${local.repo_dir}/.env <<ENV
-ANTHROPIC_API_KEY=${data.coder_parameter.anthropic_api_key.value}
-OPENAI_API_KEY=${data.coder_parameter.openai_api_key.value}
 AWS_ACCESS_KEY_ID=${data.coder_parameter.aws_access_key_id.value}
 AWS_SECRET_ACCESS_KEY=${data.coder_parameter.aws_secret_access_key.value}
 AWS_REGION=${data.coder_parameter.aws_region.value}
-LLM_MODEL_ID=anthropic:claude-3-5-sonnet-20241022
-EMBEDDING_MODEL=openai:text-embedding-3-small
+LLM_MODEL_ID=bedrock:us.anthropic.claude-opus-4-7
+EMBEDDING_MODEL=bedrock:amazon.titan-embed-text-v2:0
 CUBEJS_API_SECRET=demo-secret-change-me
 SUPERSET_SECRET_KEY=demo-superset-key
 SECRET_KEY=demo-secret
 FAST_API_ACCESS_SECRET_TOKEN=demo-token
-MILVUS_SERVER_URI=http://milvus-standalone:19530
+MILVUS_SERVER_URI=http://milvus:19530
 CUBE_URL=http://cube_api:4000
 CUBE_SQL_HOST=cube_api
 CUBE_SQL_PORT=15432
