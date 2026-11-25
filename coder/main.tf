@@ -74,7 +74,7 @@ data "coder_parameter" "git_name" {
   type         = "string"
   mutable      = true
   default      = ""
-  order        = 6
+  order        = 4
 }
 
 data "coder_parameter" "git_email" {
@@ -84,7 +84,7 @@ data "coder_parameter" "git_email" {
   type         = "string"
   mutable      = true
   default      = ""
-  order        = 7
+  order        = 5
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,17 +104,17 @@ resource "coder_agent" "main" {
   os   = "linux"
 
   metadata {
-    display_name = "CPU usage"
-    key          = "cpu_usage"
-    script       = "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1"
+    display_name = "CPU Usage"
+    key          = "0_cpu_usage"
+    script       = "coder stat cpu"
     interval     = 10
     timeout      = 1
   }
 
   metadata {
-    display_name = "RAM usage"
-    key          = "ram_usage"
-    script       = "free -h | awk 'NR==2{print $3\"/\"$2}'"
+    display_name = "RAM Usage"
+    key          = "1_ram_usage"
+    script       = "coder stat mem"
     interval     = 10
     timeout      = 1
   }
@@ -123,25 +123,37 @@ resource "coder_agent" "main" {
     #!/bin/bash
     set -e
 
-    # Git config
-    if [ -n "${data.coder_parameter.git_name.value}" ]; then
-      git config --global user.name "${data.coder_parameter.git_name.value}"
-    fi
-    if [ -n "${data.coder_parameter.git_email.value}" ]; then
-      git config --global user.email "${data.coder_parameter.git_email.value}"
+    if [ ! -f ~/.init_done ]; then
+      cp -rT /etc/skel ~
+      touch ~/.init_done
     fi
 
-    # Install code-server
-    if ! command -v code-server &>/dev/null; then
-      curl -fsSL https://code-server.dev/install.sh | sh -s -- --method standalone
+    # Base tools
+    sudo apt-get update -q
+    sudo apt-get install -y git curl wget ca-certificates gnupg software-properties-common
+
+    # Install Docker Engine (DinD — isolated from host)
+    if ! command -v docker &>/dev/null; then
+      sudo install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        | sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+      sudo chmod a+r /etc/apt/keyrings/docker.gpg
+      sudo mkdir -p /etc/apt/sources.list.d
+      VERSION_CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
+        | sudo tee /etc/apt/sources.list.d/docker.list
+      sudo apt-get update -q
+      sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+      sudo usermod -aG docker coder
     fi
+    sudo service docker start
 
     # Install just (task runner)
     if ! command -v just &>/dev/null; then
-      curl -fsSL https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+      curl -fsSL https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
     fi
 
-    # Install dbt Fusion (dbt v2 — binary name: dbt)
+    # Install dbt Fusion (dbt v2)
     mkdir -p "$HOME/.local/bin"
     export PATH="$HOME/.local/bin:$PATH"
     grep -q '\.local/bin' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
@@ -149,13 +161,25 @@ resource "coder_agent" "main" {
       curl -fsSL https://public.cdn.getdbt.com/fs/install/install.sh | sh -s -- --update
     fi
 
+    # Install code-server
+    if ! command -v code-server &>/dev/null; then
+      curl -fsSL https://code-server.dev/install.sh | sh -s -- --method standalone
+    fi
+
+    # Git config
+    git config --global user.name "${data.coder_parameter.git_name.value != "" ? data.coder_parameter.git_name.value : data.coder_workspace_owner.me.name}"
+    git config --global user.email "${data.coder_parameter.git_email.value != "" ? data.coder_parameter.git_email.value : data.coder_workspace_owner.me.email}"
+
     # Clone demo repo
-    if [ ! -d "/home/coder/${local.repo_dir}" ]; then
-      git clone ${local.repo_url} /home/coder/${local.repo_dir}
+    cd $HOME
+    if [ -d "${local.repo_dir}/.git" ]; then
+      git -C "${local.repo_dir}" pull || true
+    else
+      git clone ${local.repo_url} ${local.repo_dir}
     fi
 
     # Write .env from parameters
-    cat > /home/coder/${local.repo_dir}/.env <<ENV
+    cat > $HOME/${local.repo_dir}/.env <<ENV
 AWS_ACCESS_KEY_ID=${data.coder_parameter.aws_access_key_id.value}
 AWS_SECRET_ACCESS_KEY=${data.coder_parameter.aws_secret_access_key.value}
 AWS_REGION=${data.coder_parameter.aws_region.value}
@@ -165,6 +189,7 @@ CUBEJS_API_SECRET=demo-secret-change-me
 SUPERSET_SECRET_KEY=demo-superset-key
 SECRET_KEY=demo-secret
 FAST_API_ACCESS_SECRET_TOKEN=demo-token
+STREAMLIT_PASSWORD=test
 MILVUS_SERVER_URI=http://milvus:19530
 CUBE_URL=http://cube_api:4000
 CUBE_SQL_HOST=cube_api
@@ -180,27 +205,10 @@ ENV
       --auth none \
       --port 13337 \
       --app-name "dbt-cube-ai-demo" \
-      /home/coder/${local.repo_dir} &
+      $HOME/${local.repo_dir} &
 
-    # Start the full demo stack
-    cd /home/coder/${local.repo_dir}
-    just all &
-
-    # Print quick-reference for incremental promotion commands
-    cat <<'HELP'
-
-    ┌─────────────────────────────────────────────────────────────┐
-    │  Demo incremental commands (run from /home/coder/dbt-cube-ai-demo)
-    │
-    │  just dbt             — re-run dbt models
-    │  just dbt-to-cube     — re-sync manifest → Cube schemas
-    │  just cube-to-superset — push Cube schemas → Superset
-    │  just cube-to-rag     — ingest changed schemas into Milvus
-    │  just sync            — full dbt → Cube sync
-    │  just all             — restart entire stack
-    └─────────────────────────────────────────────────────────────┘
-
-HELP
+    # Start the full demo stack (via sg to pick up docker group)
+    exec sg docker "cd $HOME/${local.repo_dir} && just all"
   EOT
 }
 
@@ -269,47 +277,78 @@ resource "coder_app" "milvus_ui" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Docker container
+# Docker resources
 # ─────────────────────────────────────────────────────────────────────────────
 
 resource "docker_image" "workspace" {
-  name = "codercom/enterprise-base:ubuntu"
+  name          = "codercom/enterprise-base:ubuntu"
   pull_triggers = ["codercom/enterprise-base:ubuntu"]
 }
 
-resource "docker_container" "workspace" {
-  count = data.coder_workspace.me.start_count
-  image = docker_image.workspace.name
-  name  = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
+resource "docker_volume" "home" {
+  name = "coder-${data.coder_workspace.me.id}-home"
+  lifecycle { ignore_changes = all }
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+}
 
-  # Allow Docker socket access so the workspace can run docker compose
-  volumes {
-    host_path      = "/var/run/docker.sock"
-    container_path = "/var/run/docker.sock"
+resource "docker_volume" "docker_data" {
+  name = "coder-${data.coder_workspace.me.id}-docker-data"
+  lifecycle { ignore_changes = all }
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
+}
+
+resource "docker_container" "workspace" {
+  count    = data.coder_workspace.me.start_count
+  image    = docker_image.workspace.name
+  name     = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
+  hostname = data.coder_workspace.me.name
+
+  privileged = true
+
+  entrypoint = [
+    "sh", "-c",
+    replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal")
+  ]
+
+  env = ["CODER_AGENT_TOKEN=${coder_agent.main.token}"]
+
+  host {
+    host = "host.docker.internal"
+    ip   = "host-gateway"
   }
 
   volumes {
     volume_name    = docker_volume.home.name
     container_path = "/home/coder"
+    read_only      = false
   }
 
-  env = [
-    "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-  ]
+  volumes {
+    volume_name    = docker_volume.docker_data.name
+    container_path = "/var/lib/docker"
+    read_only      = false
+  }
 
-  command = [
-    "sh", "-c",
-    <<-EOT
-      # Install Docker CLI inside the container
-      if ! command -v docker &>/dev/null; then
-        curl -fsSL https://get.docker.com | sh
-        usermod -aG docker coder
-      fi
-      exec ${coder_agent.main.init_script}
-    EOT
-  ]
-}
-
-resource "docker_volume" "home" {
-  name = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}-home"
+  labels {
+    label = "coder.owner"
+    value = data.coder_workspace_owner.me.name
+  }
+  labels {
+    label = "coder.workspace_id"
+    value = data.coder_workspace.me.id
+  }
 }
