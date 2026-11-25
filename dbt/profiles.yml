@@ -1,0 +1,8 @@
+demo:
+  outputs:
+    dev:
+      type: duckdb
+      path: /data/education.duckdb
+      threads: 4
+      schema: public
+  target: dev

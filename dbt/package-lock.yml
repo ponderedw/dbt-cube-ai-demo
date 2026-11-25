@@ -1,0 +1,8 @@
+packages:
+- git: https://github.com/ponderedw/dbt_simple_metrics.git
+  name: dbt_simple_metrics
+  revision: df97a58d6150df6fad9005d92446c2a00531b568
+- package: dbt-labs/dbt_utils
+  name: dbt_utils
+  version: 1.4.1
+sha1_hash: e280c482ccb05c1c54d5812ca97f7147ebfbcd02

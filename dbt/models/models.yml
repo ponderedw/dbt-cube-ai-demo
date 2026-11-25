@@ -1,0 +1,338 @@
+version: 2
+
+models:
+  - name: metricflow_time_spine
+    description: "Date spine required by MetricFlow for time grain calculations"
+    columns:
+      - name: date_day
+        description: "One row per calendar day from 2000-01-01 to 2030-12-31"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Course Performance Summary
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: course_performance_summary
+    description: "Course performance aggregated by course, semester, and instructor"
+
+    semantic_model:
+      enabled: true
+
+    agg_time_dimension: semester_start_date
+
+    columns:
+      - name: course_id
+        description: "Unique identifier for the course"
+        entity:
+          type: primary
+
+      - name: semester_id
+        description: "Semester identifier"
+        dimension:
+          type: categorical
+
+      - name: semester_start_date
+        description: "Start date of the semester — aggregation time dimension"
+        granularity: day
+        dimension:
+          type: time
+
+      - name: semester_end_date
+        description: "End date of the semester"
+        granularity: day
+        dimension:
+          type: time
+
+      - name: course_code
+        description: "Course code (e.g., CS101, MATH201)"
+        dimension:
+          type: categorical
+
+      - name: course_name
+        description: "Full name of the course"
+        dimension:
+          type: categorical
+
+      - name: credits
+        description: "Number of credit hours for the course"
+
+      - name: difficulty_level
+        description: "Course difficulty level (1–5 scale)"
+        # 🎬 DEMO: uncomment to expose as a filterable dimension
+        # dimension:
+        #   type: categorical
+
+      - name: department_name
+        description: "Academic department offering the course"
+        dimension:
+          type: categorical
+
+      - name: semester_name
+        description: "Semester when the course was offered"
+        dimension:
+          type: categorical
+
+      - name: academic_year
+        description: "Academic year of the course offering"
+        dimension:
+          type: categorical
+
+      - name: instructor_name
+        description: "Name of the course instructor"
+        dimension:
+          type: categorical
+
+      - name: instructor_position
+        description: "Academic position of the instructor"
+        dimension:
+          type: categorical
+
+      - name: performance_category
+        description: "Overall performance category for the course"
+        dimension:
+          type: categorical
+
+      - name: total_enrollments
+        description: "Total number of student enrollments"
+
+      - name: avg_grade_points
+        description: "Average grade point average"
+
+      - name: avg_attendance
+        description: "Average attendance percentage"
+
+      - name: pass_rate_percentage
+        description: "Percentage of students with passing grades"
+
+      - name: excellence_rate_percentage
+        description: "Percentage of students earning an A or A+"
+
+    metrics:
+      - name: total_course_enrollments
+        description: "Total number of student enrollments across all course sections"
+        agg: sum
+        expr: total_enrollments
+        fill_nulls_with: 0
+
+      - name: average_course_gpa
+        description: "Mean grade point average across all enrolled students"
+        agg: average
+        expr: avg_grade_points
+
+      - name: course_pass_rate
+        description: "Proportion of students achieving a passing grade (2.0+ GPA)"
+        agg: average
+        expr: pass_rate_percentage
+
+      - name: student_engagement_score
+        description: "Composite score combining attendance (60%) and academic performance (40%)"
+        agg: average
+        expr: "(avg_attendance * 0.6 + avg_grade_points * 25)"
+
+      # 🎬 DEMO: step 2 — uncomment this metric after uncommenting difficulty_level dimension
+      # - name: course_excellence_rate
+      #   description: "Percentage of students earning an A or A+ in the course"
+      #   agg: average
+      #   expr: excellence_rate_percentage
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Student Attendance
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: student_attendance
+    description: "Student attendance records aggregated by student, section, and semester"
+
+    semantic_model:
+      enabled: true
+
+    agg_time_dimension: semester_start_date
+
+    columns:
+      - name: student_id
+        description: "Unique student identifier"
+        entity:
+          type: primary
+
+      - name: section_id
+        description: "Physical course section — foreign key to course_performance_summary"
+        entity:
+          type: foreign
+
+      - name: semester_start_date
+        description: "Start date of the semester — aggregation time dimension"
+        granularity: day
+        dimension:
+          type: time
+
+      - name: academic_year
+        description: "Academic year (e.g. 2024-2025)"
+        dimension:
+          type: categorical
+
+      - name: semester_name
+        description: "Semester name (e.g. Fall 2024)"
+        dimension:
+          type: categorical
+
+      - name: semester_type
+        description: "Season of the semester: Fall, Spring, or Summer"
+        dimension:
+          type: categorical
+
+      - name: school_name
+        description: "Department acting as school (demo proxy)"
+        dimension:
+          type: categorical
+
+      - name: gradespan
+        description: "STEM or Liberal Arts gradespan (demo proxy)"
+        dimension:
+          type: categorical
+
+      - name: is_odp_student
+        description: "1 if the student is in an out-of-district placement (ODP)"
+        dimension:
+          type: categorical
+
+      - name: days_enrolled
+        description: "Total enrolled school days"
+
+      - name: days_absent
+        description: "Days the student was absent"
+
+      - name: days_tardy
+        description: "Days the student was tardy"
+
+      - name: attendance_rate
+        description: "Days present / days enrolled (0–100 scale)"
+
+    metrics:
+      - name: school_attendance_rate
+        description: "Average daily attendance rate across all students"
+        agg: average
+        expr: attendance_rate
+        fill_nulls_with: 0
+
+      - name: total_enrolled_days
+        description: "Total enrolled school days across all students"
+        agg: sum
+        expr: days_enrolled
+        fill_nulls_with: 0
+
+      - name: total_absent_days
+        description: "Sum of absent days across all students"
+        agg: sum
+        expr: days_absent
+        fill_nulls_with: 0
+
+      - name: total_tardy_days
+        description: "Total tardy days excluding out-of-district placement students"
+        agg: sum
+        expr: "case when is_odp_student = 0 then days_tardy else null end"
+        fill_nulls_with: 0
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Semester Enrollment Trends
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: semester_enrollment_trends
+    description: "Enrollment trends aggregated by semester with performance indicators"
+
+    semantic_model:
+      enabled: true
+
+    agg_time_dimension: start_date
+
+    columns:
+      - name: semester_id
+        description: "Unique semester identifier"
+        entity:
+          type: primary
+
+      - name: start_date
+        description: "Date the semester began — aggregation time dimension"
+        granularity: day
+        dimension:
+          type: time
+
+      - name: end_date
+        description: "Date the semester ended"
+        granularity: day
+        dimension:
+          type: time
+
+      - name: semester_name
+        description: "Human-readable semester name (e.g. Fall 2024)"
+        dimension:
+          type: categorical
+
+      - name: academic_year
+        description: "Academic year the semester belongs to (e.g. 2024-2025)"
+        dimension:
+          type: categorical
+
+      - name: semester_type
+        description: "Season: Fall, Spring, or Summer"
+        dimension:
+          type: categorical
+
+      - name: semester_status
+        description: "Current status: Active, Completed, or Upcoming"
+        dimension:
+          type: categorical
+
+      - name: semester_performance_category
+        description: "Overall performance tier for the semester"
+        dimension:
+          type: categorical
+
+      - name: total_enrollments
+        description: "Total student enrollments in the semester"
+
+      - name: unique_students
+        description: "Number of distinct students enrolled"
+
+      - name: unique_courses
+        description: "Number of distinct courses offered"
+
+      - name: avg_semester_grade_points
+        description: "Average GPA across all students in the semester"
+
+      - name: deans_list_students
+        description: "Number of students achieving Dean's List standing"
+
+      - name: probation_students
+        description: "Number of students on academic probation"
+
+    metrics:
+      - name: total_semester_enrollments
+        description: "Total number of student enrollments recorded in the semester"
+        agg: sum
+        expr: total_enrollments
+        fill_nulls_with: 0
+
+      - name: total_semester_headcount
+        description: "Total distinct students enrolled across all semesters"
+        agg: sum
+        expr: unique_students
+        fill_nulls_with: 0
+
+      - name: total_semester_courses
+        description: "Total distinct courses offered across all semesters"
+        agg: sum
+        expr: unique_courses
+        fill_nulls_with: 0
+
+      - name: average_semester_gpa
+        description: "Mean grade point average across all semesters"
+        agg: average
+        expr: avg_semester_grade_points
+
+      - name: total_deans_list
+        description: "Total students achieving Dean's List standing"
+        agg: sum
+        expr: deans_list_students
+        fill_nulls_with: 0
+
+      - name: total_on_probation
+        description: "Total students placed on academic probation"
+        agg: sum
+        expr: probation_students
+        fill_nulls_with: 0
+

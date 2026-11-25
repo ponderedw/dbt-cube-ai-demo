@@ -1,0 +1,148 @@
+version: "3.8"
+
+volumes:
+  duckdb_data:
+  superset_home:
+
+services:
+  # ── 1. dbt: seed raw data + build models ────────────────────────────────
+  dbt:
+    build:
+      context: ./dbt
+      dockerfile: Dockerfile
+    volumes:
+      - duckdb_data:/data
+      - ./cube_output:/cube_output
+      - ./dbt:/dbt
+    environment:
+      DUCKDB_PATH: /data/education.duckdb
+      DBT_PROFILES_DIR: /dbt
+    healthcheck:
+      test: ["CMD", "test", "-f", "/data/education.duckdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ── 2. dbt docs server ──────────────────────────────────────────────────
+  dbt-docs:
+    build:
+      context: ./dbt
+      dockerfile: Dockerfile
+    volumes:
+      - ./dbt:/dbt
+    environment:
+      DBT_PROFILES_DIR: /dbt
+    entrypoint: ["bash", "-c", "dbt docs generate && dbt docs serve --host 0.0.0.0 --port 8580"]
+    ports:
+      - "8082:8580"
+    depends_on:
+      dbt:
+        condition: service_completed_successfully
+    restart: always
+
+  # ── 3. dbt-to-cube sync ──────────────────────────────────────────────────
+  dbt-cube-sync:
+    build:
+      context: ./dbt-cube-sync
+      dockerfile: Dockerfile
+    # image: ponderedw/dbt-cube-sync:latest  # use once published
+    volumes:
+      - ./dbt:/workspace/dbt
+      - ./cube_output:/workspace/cube_output
+    working_dir: /workspace
+    depends_on:
+      dbt:
+        condition: service_completed_successfully
+    entrypoint: ["dbt-cube-sync"]
+    command:
+      - dbt-to-cube
+      - --manifest
+      - /workspace/dbt/target/manifest.json
+      - --catalog
+      - /workspace/dbt/target/catalog.json
+      - --output
+      - /workspace/cube_output
+
+  # ── 3. Cube.js ───────────────────────────────────────────────────────────
+  cube_api:
+    image: cubejs/cube:v1.8.21
+    restart: always
+    ports:
+      - "4000:4000"
+      - "15432:15432"
+    env_file: .env
+    environment:
+      CUBEJS_DB_TYPE: duckdb
+      CUBEJS_DB_DUCKDB_DATABASE_PATH: /data/education.duckdb
+      CUBEJS_SCHEMA_PATH: /cube/conf/cube_output
+      CUBEJS_DEV_MODE: "true"
+      CUBEJS_WEB_SOCKETS: "true"
+    volumes:
+      - duckdb_data:/data
+      - ./.cubestore:/cube/data
+      - ./cube_output:/cube/conf/cube_output:ro
+      - ./cube/cube.js:/cube/conf/cube.js:ro
+    depends_on:
+      dbt-cube-sync:
+        condition: service_completed_successfully
+
+  # ── 4. Superset ──────────────────────────────────────────────────────────
+  superset:
+    build:
+      context: ./superset
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8088:8088"
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-demo-secret-key}
+      SUPERSET_CONFIG_PATH: /app/superset_config.py
+    volumes:
+      - superset_home:/app/superset_home
+      - ./superset/superset_config.py:/app/superset_config.py:ro
+
+  # ── 5. Superset setup: register Cube connection ──────────────────────────
+  superset-setup:
+    build:
+      context: ./superset-setup
+      dockerfile: Dockerfile
+    depends_on:
+      superset:
+        condition: service_started
+      cube_api:
+        condition: service_started
+    restart: "no"
+    environment:
+      SUPERSET_URL: http://superset:8088
+      SUPERSET_USERNAME: admin
+      SUPERSET_PASSWORD: admin
+      CUBE_HOST: cube_api
+      CUBE_PORT: "15432"
+      CUBEJS_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:-}
+
+  # ── 6. Cube → Superset dataset sync ─────────────────────────────────────
+  cube-to-superset:
+    build:
+      context: ./dbt-cube-sync
+      dockerfile: Dockerfile
+    depends_on:
+      cube_api:
+        condition: service_started
+      superset:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["dbt-cube-sync"]
+    command:
+      - cube-to-bi
+      - superset
+      - --cube-api-url
+      - http://cube_api:4000
+      - --cube-api-secret
+      - ${CUBEJS_API_SECRET:-demo-secret-change-me}
+      - --url
+      - http://superset:8088
+      - --username
+      - admin
+      - --password
+      - admin
