@@ -130,7 +130,7 @@ resource "coder_agent" "main" {
 
     # Base tools
     sudo apt-get update -q
-    sudo apt-get install -y git curl wget ca-certificates gnupg software-properties-common
+    sudo apt-get install -y --fix-missing git curl wget ca-certificates gnupg software-properties-common
 
     # Install Docker Engine (DinD — isolated from host)
     if ! command -v docker &>/dev/null; then
