@@ -178,6 +178,11 @@ resource "coder_agent" "main" {
       git clone ${local.repo_url} ${local.repo_dir}
     fi
 
+    # dbt Fusion writes logs to <project>/logs/ — create it so non-root coder user can write
+    mkdir -p $HOME/${local.repo_dir}/dbt/logs
+    echo 'export DBT_PROFILES_DIR=$HOME/${local.repo_dir}/dbt' >> ~/.bashrc
+    export DBT_PROFILES_DIR=$HOME/${local.repo_dir}/dbt
+
     # Write .env from parameters
     cat > $HOME/${local.repo_dir}/.env <<ENV
 AWS_ACCESS_KEY_ID=${data.coder_parameter.aws_access_key_id.value}
@@ -237,7 +242,8 @@ resource "coder_app" "cube" {
   display_name = "Cube Playground"
   url          = "http://localhost:4000"
   icon         = "/icon/cube.svg"
-  subdomain    = false
+  subdomain    = true
+  share        = "owner"
 }
 
 resource "coder_app" "superset" {
@@ -246,7 +252,8 @@ resource "coder_app" "superset" {
   display_name = "Superset"
   url          = "http://localhost:8088"
   icon         = "/icon/superset.svg"
-  subdomain    = false
+  subdomain    = true
+  share        = "owner"
 }
 
 resource "coder_app" "chat" {
@@ -255,7 +262,8 @@ resource "coder_app" "chat" {
   display_name = "AI Chat"
   url          = "http://localhost:8501"
   icon         = "/icon/streamlit.svg"
-  subdomain    = false
+  subdomain    = true
+  share        = "owner"
 }
 
 resource "coder_app" "dbt_docs" {
@@ -264,7 +272,8 @@ resource "coder_app" "dbt_docs" {
   display_name = "dbt Docs"
   url          = "http://localhost:8082"
   icon         = "/icon/dbt.svg"
-  subdomain    = false
+  subdomain    = true
+  share        = "owner"
 }
 
 resource "coder_app" "milvus_ui" {
@@ -273,7 +282,8 @@ resource "coder_app" "milvus_ui" {
   display_name = "Milvus UI"
   url          = "http://localhost:8003"
   icon         = "/icon/database.svg"
-  subdomain    = false
+  subdomain    = true
+  share        = "owner"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
